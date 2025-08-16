@@ -5,27 +5,24 @@
 
 # Unique ID of this mod. Pick something long enough that it'll never be the same as any other mod.
 # The name displayed in the mod management menu is separate from this so this doesn't need to be human readable.
-id = "mm_recomp_mod_template"
+id = "input_displayer"
 
 # Version of this mod.
-version = "1.0.0"
+version = "0.0.0"
 
 # The name that will show up for this mod in the mod menu. This should be human readable.
-display_name = "Always Spin Attack"
+display_name = "InputDisplay"
 
 # The description that will show up when this mod is displayed in the mod menu. This should be human readable.
-description =  """
-This is an example mod for Majora's Mask: Recompiled that can be used as a template for creating mods. \
-When this mod is enabled, you will always perform a quickspin when swinging your sword.
-
-For more details, see https://github.com/Zelda64Recomp/MMRecompModTemplate."""
+description =  """InputDisplay For MM Recomp.
+Still in developement. Done with the amazing help of the community."""
 
 # A short description that will show up in this mod's entry in the mod list. This should be human readable and kept short
 # to prevent it from being cut off due to the limited space.
-short_description = "Always perform a quickspin when swinging your sword."
+short_description = "InputDipslay"
 
 # Authors of this mod.
-authors = [ "Your name here" ]
+authors = [ "Eppe" ]
 
 # ID of the target recomp game.
 game_id = "mm"
@@ -52,7 +49,7 @@ native_libraries = [
 elf_path = "build/mod.elf"
 
 # Output mod filename.
-mod_filename = "mm_recomp_mod_template"
+mod_filename = "InputDisplay_Dev"
 
 # Reference symbol files.
 func_reference_syms_file = "Zelda64RecompSyms/mm.us.rev1.syms.toml"
@@ -60,30 +57,57 @@ data_reference_syms_files = [ "Zelda64RecompSyms/mm.us.rev1.datasyms.toml", "Zel
 
 # Additional files to include in the mod.
 additional_files = [ ]
+# Config options.
 
 [[manifest.config_options]]
-id = "enum_option"
-name = "Enum Option"
-description = "Test enum config option"
+id = "input_display_deadzone"
+name = "Deadzone Viewer"
+description = """Makes the input viewer show the Deadzone.
+Off makes the input viewer not show the Deadzone on the
+analog.
+On makes the input viewer show the Deadzone of the analog
+"""
 type = "Enum"
-options = [ "First", "Second" ]
-default = "First"
+options = [
+    "Off",
+    "On",
+]
+default = "Off"
 
 [[manifest.config_options]]
-id = "number_option"
-name = "Number Option"
+id = "button_placement_option"
+name = "L Button"
+description = """Add the L Button.
+"""
+type = "Enum"
+options = [
+    "Off",
+    "On",
+]
+default = "Off"
+
+[[manifest.config_options]]
+id = "overlay_placement_option"
+name = "L Button"
+description = """Change overlay placement.
+"""
+type = "Enum"
+options = [
+    "Left",
+    "Center",
+    "Right",
+]
+default = "Left"
+
+
+[[manifest.config_options]]
+id = "pos_y_display"
+name = "Position Y InputViewer"
 description = "Test number config option."
 type = "Number"
-min = 0
-max = 10
-step = 0.1
+min = -58
+max = 145
+step = 1
 precision = 1
 percent = false
-default = 1
-
-[[manifest.config_options]]
-id = "string_option"
-name = "String Option"
-description = "Test string config option."
-type = "String"
-default = "Lorem Ipsum"
+default = 100
