@@ -97,6 +97,7 @@ Vtx gStickVtx[] = {
 
 #define top_left_y (int) recomp_get_config_double("pos_y_display")
 float scale = 1.0f;
+s32 margin_reduction = 8;
 
 //Store of the inputs button
 Input g_ControllerInput;
@@ -139,6 +140,7 @@ void DrawInput(PlayState* play)
     gDPSetCycleType(OVERLAY_DISP++, G_CYC_1CYCLE);
     gDPSetRenderMode(OVERLAY_DISP++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
     gDPSetCombineMode(OVERLAY_DISP++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
+
 	
 			// Analog 
 
@@ -559,22 +561,28 @@ void DrawInput(PlayState* play)
 
 			//Stick movement
 
+
 	if (g_ControllerInput.cur.stick_x != -100 || g_ControllerInput.cur.stick_y != -100) // Stick active
 	{
 		float Stick_X = 0.0f;
 		float Stick_Y = (top_left_y - 50.55f) - (g_ControllerInput.cur.stick_y * (scale -0.96f));
 		if (OVERLAY_CUSTOM == Left)
 		{
-		Stick_X = (Stick_X + top_left_x- 355.0f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f)); // UP = -X | DOWN = +X
+		Stick_X = (Stick_X + top_left_x- 292.80f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f)); // UP = -X | DOWN = +X
+		gEXSetViewportAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, -margin_reduction * 4, margin_reduction * 4);
+        gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 		}
 		else if (OVERLAY_CUSTOM == Center)
 		{
-		Stick_X = (Stick_X +top_left_x- 141.8f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f));
+		Stick_X = (Stick_X +top_left_x- 292.80f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f));
+		gEXSetViewportAlign(OVERLAY_DISP++, G_EX_ORIGIN_CENTER, -margin_reduction * 4, margin_reduction * 4);
+        gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 		}
 		else if (OVERLAY_CUSTOM == Right)
 		{
-		Stick_X = (Stick_X + top_left_x + 71.6f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f));
-		}
+		Stick_X = (Stick_X + top_left_x - 292.80f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f));
+		gEXSetViewportAlign(OVERLAY_DISP++, G_EX_ORIGIN_RIGHT, -margin_reduction * 4, margin_reduction * 4);
+        gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);		}
 
 		InterfaceContext* interfaceCtx = &play->interfaceCtx;
 
@@ -605,11 +613,14 @@ void DrawInput(PlayState* play)
 						G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
 		gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
 		gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
+		
 
 		Matrix_Push();
-		Matrix_Translate(Stick_X, 0- Stick_Y, 0.0f, MTXMODE_NEW);
+		Matrix_Translate(Stick_X, 8- Stick_Y, 1.0f, MTXMODE_NEW);
 		Matrix_Scale(0.30f, 0.30f, 0, MTXMODE_APPLY);
 		MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
+		gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
+		gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
 		gSPVertex(OVERLAY_DISP++, gStickVtx, 4, 0);
 		gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
 
