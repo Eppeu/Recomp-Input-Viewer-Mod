@@ -3,6 +3,7 @@
 #include "recompconfig.h"
 #include "rt64_extended_gbi.h"
 #include "libu64/pad.h"
+#include "libc64/math64.h"
 
 #define INCBIN(identifier, filename)         \
     asm(".pushsection .rodata\n"             \
@@ -61,6 +62,7 @@ typedef enum
 #define DEADZONE_SHOW ((DeadzoneViewer)recomp_get_config_u32("input_display_deadzone"))
 #define L_BUTTON_PLACEMENT ((LBUTTON)recomp_get_config_u32("button_placement_option"))
 #define OVERLAY_CUSTOM ((OverlayPlacement)recomp_get_config_u32("overlay_placement_option"))
+RECOMP_IMPORT("*", void recomp_get_window_resolution(u32* width, u32* height));
 
 /**
  * `x` vertex x
@@ -99,6 +101,7 @@ Vtx gStickVtx[] = {
 float scale = 1.0f;
 s32 margin_reduction = 8;
 
+
 //Store of the inputs button
 Input g_ControllerInput;
 
@@ -107,6 +110,7 @@ void KeepInputs(PlayState* play)
 {
 	g_ControllerInput = *CONTROLLER1(&play->state);
 }
+
 
 // Majora's mask runs at 320x240
 // Note: The center of the screen is at 160, 120
@@ -564,28 +568,40 @@ void DrawInput(PlayState* play)
 
 	if (g_ControllerInput.cur.stick_x != -100 || g_ControllerInput.cur.stick_y != -100) // Stick active
 	{
-		float Stick_X = 0.0f;
+		float Stick_X = 0;
 		float Stick_Y = (top_left_y - 50.55f) - (g_ControllerInput.cur.stick_y * (scale -0.96f));
+		u32 width, height;
+		recomp_get_window_resolution(&width, &height);
+
+		f32 _scale = height / 240.0f;
+
+		f32 quad_pos = (width / 2.0f) - (margin_reduction * 4) + (top_left_x -292.90f);
+		f32 rect_pos = Math_FFloorF(quad_pos / _scale) * _scale;
+
+        f32 offset = (quad_pos - rect_pos) / _scale;
+		Stick_X -= offset;
 		if (OVERLAY_CUSTOM == Left)
 		{
-		Stick_X = (Stick_X + top_left_x- 292.80f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f)); // UP = -X | DOWN = +X
+		Stick_X = (Stick_X + top_left_x- 292.90f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f)); // UP = -X | DOWN = +X
 		gEXSetViewportAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, -margin_reduction * 4, margin_reduction * 4);
         gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 		}
 		else if (OVERLAY_CUSTOM == Center)
 		{
-		Stick_X = (Stick_X +top_left_x- 292.80f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f));
+		Stick_X = (Stick_X +top_left_x- 292.90f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f));
 		gEXSetViewportAlign(OVERLAY_DISP++, G_EX_ORIGIN_CENTER, -margin_reduction * 4, margin_reduction * 4);
         gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 		}
 		else if (OVERLAY_CUSTOM == Right)
 		{
-		Stick_X = (Stick_X + top_left_x - 292.80f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f));
+		Stick_X = (Stick_X + top_left_x - 292.90f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f));
 		gEXSetViewportAlign(OVERLAY_DISP++, G_EX_ORIGIN_RIGHT, -margin_reduction * 4, margin_reduction * 4);
-        gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);		}
+        gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+		}
 
 		InterfaceContext* interfaceCtx = &play->interfaceCtx;
 
+		gDPSetTexturePersp(OVERLAY_DISP++, G_TP_PERSP);
 		Interface_SetOrthoView(interfaceCtx);
 		Gfx_SetupDL39_Opa(play->state.gfxCtx);
 
@@ -609,14 +625,14 @@ void DrawInput(PlayState* play)
 		{
 		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, 255);
 		}
-		gDPLoadTextureTile(OVERLAY_DISP++, Stick_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
+		gDPLoadTextureTile(OVERLAY_DISP++, Stick_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0, BUTTONS_IMG_W, BUTTONS_IMG_H, 0,
 						G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
 		gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
 		gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
 		
 
 		Matrix_Push();
-		Matrix_Translate(Stick_X, 8- Stick_Y, 1.0f, MTXMODE_NEW);
+		Matrix_Translate(Stick_X, 8- Stick_Y, 0.0f, MTXMODE_NEW);
 		Matrix_Scale(0.30f, 0.30f, 0, MTXMODE_APPLY);
 		MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
 		gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
