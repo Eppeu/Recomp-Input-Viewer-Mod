@@ -5,21 +5,24 @@
 
 # Unique ID of this mod. Pick something long enough that it'll never be the same as any other mod.
 # The name displayed in the mod management menu is separate from this so this doesn't need to be human readable.
-id = "input_displayer"
+id = "mm_recomp_input_viewer"
 
 # Version of this mod.
-version = "0.0.0"
+version = "1.0.0"
 
 # The name that will show up for this mod in the mod menu. This should be human readable.
-display_name = "InputDisplay"
+display_name = "Input Viewer"
 
 # The description that will show up when this mod is displayed in the mod menu. This should be human readable.
-description =  """InputDisplay For MM Recomp.
-Still in developement. Done with the amazing help of the community."""
+description =  """A mod that allows you to view the input pressed on the screen in real time.
+
+A huge thanks to Wombat, danielryb and a lot of other members of the recomp community for their help.
+<3
+"""
 
 # A short description that will show up in this mod's entry in the mod list. This should be human readable and kept short
 # to prevent it from being cut off due to the limited space.
-short_description = "InputDipslay"
+short_description = "A mod that shows the input pressed."
 
 # Authors of this mod.
 authors = [ "Eppe" ]
@@ -49,23 +52,25 @@ native_libraries = [
 elf_path = "build/mod.elf"
 
 # Output mod filename.
-mod_filename = "InputDisplay_Dev"
+mod_filename = "mm_Input_Viewer"
 
 # Reference symbol files.
 func_reference_syms_file = "Zelda64RecompSyms/mm.us.rev1.syms.toml"
 data_reference_syms_files = [ "Zelda64RecompSyms/mm.us.rev1.datasyms.toml", "Zelda64RecompSyms/mm.us.rev1.datasyms_static.toml" ]
 
 # Additional files to include in the mod.
-additional_files = [ ]
+additional_files = ["thumb.png"]
 # Config options.
 
 [[manifest.config_options]]
 id = "input_display_deadzone"
-name = "Deadzone Viewer"
-description = """Makes the input viewer show the Deadzone.
-Off makes the input viewer not show the Deadzone on the
-analog.
-On makes the input viewer show the Deadzone of the analog
+name = "Extended Superslide Viewer"
+description = """Makes the input viewer distinctly show the ESS zone. (Useful for HESS)
+Off makes the input viewer not show the dead zone or the ESS zone of the analog.
+On makes the input viewer show the Deadzone and ESS zone of the analog:
+    Black: No input will be registered
+    Green: ESS Zone
+    Red: Outside of the ESS Zone
 """
 type = "Enum"
 options = [
@@ -76,25 +81,30 @@ default = "Off"
 
 [[manifest.config_options]]
 id = "button_placement_option"
-name = "L Button"
-description = """Add the L Button.
+name = "Show L Button"
+description = """Add or remove the L Button from the input viewer.
+Note: Setting the option to Off makes the Right trigger to the R Button
+while the left button will be the Z button instead of the L Button
 """
 type = "Enum"
 options = [
     "Off",
     "On",
 ]
-default = "Off"
+default = "On"
 
 [[manifest.config_options]]
 id = "overlay_placement_option"
-name = "L Button"
-description = """Change overlay placement.
+name = "Overlay Placement"
+description = """Change the position of the input viewer.
+Note #1: If you select either option, please change the value of
+the X-Axis to see the input viewer again.
+Note #2: If you select Left, the input viewer will be cut if it is on the right
+And vice versa if you select Right.
 """
 type = "Enum"
 options = [
     "Left",
-    "Center",
     "Right",
 ]
 default = "Left"
@@ -102,8 +112,8 @@ default = "Left"
 
 [[manifest.config_options]]
 id = "pos_y_display"
-name = "Position Y InputViewer"
-description = "Test number config option."
+name = "Overlay Y Axis position"
+description = "Change the value of the Y axis of the input viewer."
 type = "Number"
 min = -58
 max = 145
@@ -111,3 +121,77 @@ step = 1
 precision = 1
 percent = false
 default = 100
+
+[[manifest.config_options]]
+id = "pos_x_display"
+name = "Overlay X Axis position"
+description = "Change the value of the X axis of the input viewer."
+type = "Number"
+min = -50
+max = 300
+step = 1
+precision = 1
+percent = false
+default = 145
+[[manifest.config_options]]
+id = "custom_color_option"
+name = "Custom Button Color"
+description = """Setting that allows to change the color of each buttons.
+
+Credit to Neirn for her code to convert a string to a hex value (You're amazing!)
+"""
+type = "Enum"
+options = [
+    "Normal",
+    "Custom",
+]
+default = "Normal"
+
+[[manifest.config_options]]
+id = "stick_color"
+name = "Analog Color"
+description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: FFFFFF\n\n\nNote: If the ESS Viewer is activated, you won't be able to change the color of the stick."
+type = "String"
+default = "FFFFFF"
+
+[[manifest.config_options]]
+id = "trigger_color"
+name = "Triggers Color"
+description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: FFFFFF"
+type = "String"
+default = "FFFFFF"
+
+[[manifest.config_options]]
+id = "a_button_color"
+name = "A Button Color"
+description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: 0000FF"
+type = "String"
+default = "0000FF"
+
+[[manifest.config_options]]
+id = "b_button_color"
+name = "B Button Color"
+description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: 00FF00"
+type = "String"
+default = "00FF00"
+
+[[manifest.config_options]]
+id = "start_button_color"
+name = "Start Button Color"
+description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: FF0000"
+type = "String"
+default = "FF0000"
+
+[[manifest.config_options]]
+id = "dpad_color"
+name = "D-Pad Color"
+description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: 808080"
+type = "String"
+default = "808080"
+
+[[manifest.config_options]]
+id = "c_button_color"
+name = "C-Buttons Color"
+description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: FFFF00"
+type = "String"
+default = "FFFF00"
