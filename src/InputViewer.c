@@ -1,6 +1,7 @@
 #include "modding.h"
 #include "global.h"
 #include "recompconfig.h"
+#include "recomputils.h"
 #include "rt64_extended_gbi.h"
 #include "libu64/pad.h"
 #include "libc64/math64.h"
@@ -15,6 +16,8 @@
         "\t.balign 8\n"                      \
         "\t.popsection\n");                  \
     extern u8 identifier[]
+
+// Layout N64
 
 INCBIN(Notches_Ia8, "src/Assets/analog_ia8.bin");
 INCBIN(Dpad_Ia8, "src/Assets/dpad_ia8.bin");
@@ -32,6 +35,19 @@ INCBIN(Trigger_pressed_Ia8, "src/Assets/trigger_pressed_ia8.bin");
 INCBIN(ABbuttons_Ia8, "src/Assets/stick_ia8.bin");
 INCBIN(ABbuttons_pressed_Ia8, "src/Assets/button_pressed_ia8.bin");
 
+// TODO: Layout GCN 
+INCBIN(Notches_GCN_Ia8, "src/Assets/analog_ia8.bin");
+INCBIN(Analog_GCN_Ia8, "src/Assets/stick_ia8.bin");
+INCBIN(CStick_GCN_Ia8, "src/Assets/button_pressed_ia8.bin");
+INCBIN(ABbuttons_GCN_Ia8, "src/Assets/stick_ia8.bin");
+INCBIN(ABbuttons_pressed_GCN_Ia8, "src/Assets/button_pressed_ia8.bin");
+INCBIN(Xbutton_GCN_Ia8, "src/Assets/x_button_ia8.bin");
+INCBIN(Xbutton_pressed_GCN_Ia8, "src/Assets/x_button_pressed_ia8.bin");
+INCBIN(Ybutton_GCN_Ia8, "src/Assets/y_button_ia8.bin");
+INCBIN(Ybutton_pressed_GCN_Ia8, "src/Assets/y_button_pressed_ia8.bin");
+INCBIN(Zbutton_GCN_Ia8, "src/Assets/z_button_ia8.bin");
+INCBIN(Zbutton_pressed_GCN_Ia8, "src/Assets/z_button_pressed_ia8.bin");
+
 void Interface_SetOrthoView(InterfaceContext* interfaceCtx) {
     SET_FULLSCREEN_VIEWPORT(&interfaceCtx->view);
     View_ApplyOrthoToOverlay(&interfaceCtx->view);
@@ -39,18 +55,23 @@ void Interface_SetOrthoView(InterfaceContext* interfaceCtx) {
 }
 
 // Options from mod.toml
+typedef enum
+{
+	N64,
+	GCN,
+} ControllerLayout;
+
+typedef enum
+{
+	Off,
+	On,
+} LBUTTON_N64;
 
 typedef enum 
 {
 	OFF,
 	ON,
 } DeadzoneViewer;
-
-typedef enum
-{
-	Off,
-	On,
-} LBUTTON;
 
 typedef enum
 {
@@ -65,10 +86,12 @@ typedef enum
 } CustomColorButton;
 
 #define DEADZONE_SHOW ((DeadzoneViewer)recomp_get_config_u32("input_display_deadzone"))
-#define L_BUTTON_PLACEMENT ((LBUTTON)recomp_get_config_u32("button_placement_option"))
+#define L_BUTTON_PLACEMENT ((LBUTTON_N64)recomp_get_config_u32("button_placement_option"))
 #define OVERLAY_PLACEMENT ((OverlayPlacement)recomp_get_config_u32("overlay_placement_option"))
 #define CUSTOM_COLOR_BUTTON ((CustomColorButton)recomp_get_config_u32("custom_color_option"))
+#define CONTROLLER_OVERLAY ((ControllerLayout)recomp_get_config_u32("controller_layout_option"))
 RECOMP_IMPORT("*", void recomp_get_window_resolution(u32* width, u32* height));
+RECOMP_IMPORT("*", void recomp_get_camera_inputs(float* x, float* y));
 
 /**
  * `x` vertex x
@@ -200,8 +223,25 @@ RECOMP_CALLBACK("*", recomp_on_play_main)
 void KeepInputs(PlayState* play)
 {
 	g_ControllerInput = *CONTROLLER1(&play->state);
+
 }
 
+void DrawInputFunction(Gfx** pkt, PlayState* play, void* timg, int img_w, int img_h, float input_x, float input_y, float scale_x, float scale_y, Vtx* n)
+{
+	gDPLoadTextureTile((*pkt)++, timg, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0, img_w, img_h, 0,
+					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);	
+	gSPTexture((*pkt)++, 0xFFFF, 0xFFFF, -10, G_TX_RENDERTILE, G_ON);
+	gSPClearGeometryMode((*pkt)++, G_CULL_BACK);
+	Matrix_Push();
+	Matrix_Translate(input_x,input_y, 0.0f, MTXMODE_NEW);
+	Matrix_Scale(scale_x, scale_y , 0, MTXMODE_APPLY);
+	MATRIX_FINALIZE_AND_LOAD((*pkt)++, play->state.gfxCtx);
+	gSPVertex((*pkt)++, n, 4, 0);
+	gSP1Quadrangle((*pkt)++, 0, 1, 2, 3, 0);
+
+	Matrix_Pop();
+	gDPPipeSync((*pkt)++);
+}
 
 // Majora's mask runs at 320x240
 // Note: The center of the screen is at 160, 120
@@ -210,6 +250,7 @@ RECOMP_HOOK("Interface_Draw") // Draws ALL the inputs (pressed or not pressed)
 void DrawInput(PlayState* play)
 {
 
+	// Initalizarion of the inputs positions and rendering
 	float Stick_X = (top_left_x - 292.90f) + (g_ControllerInput.cur.stick_x * (scale - 0.96f)); // UP = -X | DOWN = +X;
 	float Stick_Y = (top_left_y - 50.55f) - (g_ControllerInput.cur.stick_y * (scale -0.96f));
 	float Button_X = top_left_x - 292.90f;
@@ -228,15 +269,12 @@ void DrawInput(PlayState* play)
 	if (OVERLAY_PLACEMENT == Left)
 	{
 		gEXSetViewportAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, -margin_reduction * 4, margin_reduction * 4);
-        gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 	}
 	else 
 	{
 		gEXSetViewportAlign(OVERLAY_DISP++, G_EX_ORIGIN_RIGHT, -margin_reduction * 4, margin_reduction * 4);
-        gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 	}
-
-			// Notches 
+    gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
 	InterfaceContext* interfaceCtx = &play->interfaceCtx;
 
@@ -244,6 +282,11 @@ void DrawInput(PlayState* play)
 	Interface_SetOrthoView(interfaceCtx);
 	Gfx_SetupDL39_Opa(play->state.gfxCtx);
 	
+	//Start of the drawing of the inputs
+
+			// Notches 
+	if (CONTROLLER_OVERLAY == N64)
+	{
 	if (DEADZONE_SHOW == ON)
 	{
 		float Radius = sqrt(g_ControllerInput.cur.stick_x*g_ControllerInput.cur.stick_x + g_ControllerInput.cur.stick_y* g_ControllerInput.cur.stick_y);
@@ -276,23 +319,11 @@ void DrawInput(PlayState* play)
 	{
 	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, 255);
 	}
-	gDPLoadTextureTile(OVERLAY_DISP++, Notches_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);	
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, -10, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-	Matrix_Push();
-	Matrix_Translate(Button_X, 8 - Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.30f, 0.30f , 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPVertex(OVERLAY_DISP++, gNotchesVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
+	DrawInputFunction(&OVERLAY_DISP,play, Notches_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X, 8 - Button_Y, 0.30f, 0.30f, gNotchesVtx);
 
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
+	// Analog
 
-	        // Stick
-
-	if (g_ControllerInput.cur.stick_x != -100 || g_ControllerInput.cur.stick_y != -100) // Stick active
+	if (g_ControllerInput.cur.stick_x != -100 || g_ControllerInput.cur.stick_y != -100)
 	{
 
 		if (DEADZONE_SHOW == ON)
@@ -327,26 +358,11 @@ void DrawInput(PlayState* play)
 		{
 		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, 255);
 		}
-		gDPLoadTextureTile(OVERLAY_DISP++, Stick_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0, BUTTONS_IMG_W, BUTTONS_IMG_H, 0,
-						G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-		gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, -0, G_TX_RENDERTILE, G_ON);
-		gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-		Matrix_Push(); 
-		Matrix_Translate(Stick_X, 8- Stick_Y, 1.0f, MTXMODE_NEW);
-		Matrix_Scale(0.30f, 0.30f, 0, MTXMODE_APPLY);
-		MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-		gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-		gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-		gSPVertex(OVERLAY_DISP++, gStickVtx, 4, 0);
-		gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-		Matrix_Pop(); 
-		gDPPipeSync(OVERLAY_DISP++);
+	DrawInputFunction(&OVERLAY_DISP,play, Stick_Ia8, BUTTONS_IMG_W, BUTTONS_IMG_H, Stick_X, 8- Stick_Y, 0.30f, 0.30f, gStickVtx);
 	}
 
-				//D-PAD + Direction
-	
+	// D-PAD
+
 	if (CUSTOM_COLOR_BUTTON == Custom)
 	{
 		char *color = recomp_get_config_string("dpad_color");
@@ -363,102 +379,25 @@ void DrawInput(PlayState* play)
 	{
 	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 128, 128, 128, 255); 
 	}
-	gDPLoadTextureTile(OVERLAY_DISP++, Dpad_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 16, -DPAD_Y , 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.19f, 0.19f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gDpadVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);		
-
-	if (g_ControllerInput.cur.button & BTN_DUP) // D-PAD PRESSED
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 16, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
+	if (g_ControllerInput.cur.button & BTN_DUP) // D-PAD Up PRESSED
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Dpad_up_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-	Matrix_Push();
-	Matrix_Translate(Button_X + 16, -DPAD_Y , 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.19f, 0.19f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gDpadPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);		
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_up_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 16, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
 	}
-	if (g_ControllerInput.cur.button & BTN_DDOWN)
+	if (g_ControllerInput.cur.button & BTN_DDOWN) // D-PAD Down PRESSED
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Dpad_down_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 16, -DPAD_Y , 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.19f, 0.19f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gDpadPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);		
-
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_down_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 16, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
 	}
-	if (g_ControllerInput.cur.button & BTN_DLEFT)
+	if (g_ControllerInput.cur.button & BTN_DLEFT) // D-PAD Left PRESSED
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Dpad_left_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 16, -DPAD_Y , 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.19f, 0.19f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gDpadPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);		
-
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_left_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 16, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
 	}
-	if (g_ControllerInput.cur.button & BTN_DRIGHT)
+	if (g_ControllerInput.cur.button & BTN_DRIGHT) // D-PAD Right PRESSED
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Dpad_right_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 16, -DPAD_Y , 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.19f, 0.19f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gDpadPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);		
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_right_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 16, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
 	}
 
-	// CBUTTON UP (Not Pressed)
+	// C Button (Not Pressed)
 
 	if (CUSTOM_COLOR_BUTTON == Custom)
 	{
@@ -476,155 +415,25 @@ void DrawInput(PlayState* play)
 	{
 	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 0, 255); 
 	}
-	gDPLoadTextureTile(OVERLAY_DISP++, Cbuttons_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 43, 12 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.21f, 0.21f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
-
-	// CBUTTON DOWN (Not Pressed)
-
-	gDPLoadTextureTile(OVERLAY_DISP++, Cbuttons_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 43 , -Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.21f, 0.21f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
-	
-	// CBUTTON LEFT (Not Pressed)
-
-	gDPLoadTextureTile(OVERLAY_DISP++, Cbuttons_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 37, 6 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.21f, 0.21f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
-
-	// CBUTTON RIGHT (Not Pressed)
-
-	gDPLoadTextureTile(OVERLAY_DISP++, Cbuttons_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 49, 6 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.21f, 0.21f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
-
+	DrawInputFunction(&OVERLAY_DISP,play, Cbuttons_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, 12 - Button_Y, 0.21f, 0.21f, gButtonVtx); //C-UP
+	DrawInputFunction(&OVERLAY_DISP,play, Cbuttons_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, - Button_Y, 0.21f, 0.21f, gButtonVtx); //C-DOWN
+	DrawInputFunction(&OVERLAY_DISP,play, Cbuttons_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 37, 6 - Button_Y, 0.21f, 0.21f, gButtonVtx); //C-LEFT
+	DrawInputFunction(&OVERLAY_DISP,play, Cbuttons_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 49, 6 -  Button_Y, 0.21f, 0.21f, gButtonVtx); //C-RIGHT
 	if (g_ControllerInput.cur.button & BTN_CUP)
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Cbuttons_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 43, 12 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.21f, 0.21f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
+	DrawInputFunction(&OVERLAY_DISP,play, Cbuttons_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, 12 - Button_Y, 0.21f, 0.21f, gButtonVtx);
 	}
 	if (g_ControllerInput.cur.button & BTN_CDOWN)
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Cbuttons_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 43 , -Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.21f, 0.21f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
+	DrawInputFunction(&OVERLAY_DISP,play, Cbuttons_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, - Button_Y, 0.21f, 0.21f, gButtonVtx);
 	}
 	if (g_ControllerInput.cur.button & BTN_CLEFT)
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Cbuttons_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 37, 6 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.21f, 0.21f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
+	DrawInputFunction(&OVERLAY_DISP,play, Cbuttons_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 37, 6 - Button_Y, 0.21f, 0.21f, gButtonVtx);
 	}
 	if (g_ControllerInput.cur.button & BTN_CRIGHT)
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Cbuttons_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 49, 6 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.21f, 0.21f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
+	DrawInputFunction(&OVERLAY_DISP,play, Cbuttons_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 49, 6 -  Button_Y, 0.21f, 0.21f, gButtonVtx);
 	}
 
 	// A Button
@@ -645,41 +454,10 @@ void DrawInput(PlayState* play)
 	{
 	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 0, 255, 255); 
 	}
-	gDPLoadTextureTile(OVERLAY_DISP++, ABbuttons_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 27, -BButton_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.27f, 0.27f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
-
+	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 27, -BButton_Y, 0.27f, 0.27f, gButtonVtx);
 	if (g_ControllerInput.cur.button & BTN_A)
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, ABbuttons_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 27, -BButton_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.27f, 0.27f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
+	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 27, -BButton_Y, 0.27f, 0.27f, gButtonVtx);
 	}
 
 
@@ -700,41 +478,10 @@ void DrawInput(PlayState* play)
 	{
 	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 255, 0, 255); 
 	}
-	gDPLoadTextureTile(OVERLAY_DISP++, ABbuttons_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 18, 8 - Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.27f, 0.27f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
-
+	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 18, 8 - Button_Y, 0.27f, 0.27f, gButtonVtx);
 	if (g_ControllerInput.cur.button & BTN_B)
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, ABbuttons_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 18, 8 - Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.27f, 0.27f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
+	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 18, 8 - Button_Y, 0.27f, 0.27f, gButtonVtx);
 	}
 
 	// Start Button
@@ -755,44 +502,13 @@ void DrawInput(PlayState* play)
 	{
 	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 0, 255); 
 	}
-	gDPLoadTextureTile(OVERLAY_DISP++, Start_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X+ 26, 20 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.11f, 0.11f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
-
+	DrawInputFunction(&OVERLAY_DISP,play, Start_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X+ 26, 20 -  Button_Y, 0.11f, 0.11f, gButtonVtx);
 	if (g_ControllerInput.cur.button & BTN_START)
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Start_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
+	DrawInputFunction(&OVERLAY_DISP,play, Start_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 26, 20 - Button_Y, 0.11f, 0.11f, gButtonVtx);
+	}
 
-	Matrix_Push();
-	Matrix_Translate(Button_X+ 26, 20 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.11f, 0.11f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gButtonPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
-	}	
-
-	// Triggers (Non Pressed) -- DONE
+	// Triggers 
 
 	if (CUSTOM_COLOR_BUTTON == Custom)
 	{
@@ -810,194 +526,288 @@ void DrawInput(PlayState* play)
 	{
 	gDPSetPrimColor(OVERLAY_DISP++, 0, 0,255, 255, 255, 255);
 	}
+	DrawInputFunction(&OVERLAY_DISP,play, Trigger_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X + 40, 20 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // R Button Draw (On & off)
+	if (g_ControllerInput.cur.button & BTN_R)
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Trigger_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X + 40, 20 - Button_Y, 0.30f, 0.20f, gTriggerVtx); // R Button Press (On & off)
+	}
 	if (L_BUTTON_PLACEMENT == On)
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Trigger_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X, 20 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.30f, 0.20f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gTriggerVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
-
-	gDPLoadTextureTile(OVERLAY_DISP++, Trigger_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 20, 15 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.30f, 0.20f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gTriggerVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
-
-	gDPLoadTextureTile(OVERLAY_DISP++, Trigger_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 40, 20 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.30f, 0.20f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gTriggerVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
-
-	// Pressed triggers -- DONE 
-
-	if (g_ControllerInput.cur.button & BTN_L)
-	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Trigger_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X, 20 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.30f, 0.20f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gTriggerPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
+		DrawInputFunction(&OVERLAY_DISP,play, Trigger_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X, 20 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // L Button Draw (On)
+		if (g_ControllerInput.cur.button & BTN_L)
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Trigger_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X, 20 - Button_Y, 0.30f, 0.20f, gTriggerVtx); // L Button Press (On)
+		}
+		DrawInputFunction(&OVERLAY_DISP,play, Trigger_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X + 20, 15 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // Z Button Draw (On)
+		if (g_ControllerInput.cur.button & BTN_Z)
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Trigger_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X + 20, 15 - Button_Y, 0.30f, 0.20f, gTriggerVtx); // Z Button Press (On)
+		}
 	}
-	if (g_ControllerInput.cur.button & BTN_Z)
+	else
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Trigger_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 20, 15 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.30f, 0.20f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gTriggerPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
-	}
-	if (g_ControllerInput.cur.button & BTN_R)
-	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Trigger_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 40, 20 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.30f, 0.20f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gTriggerPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
+		DrawInputFunction(&OVERLAY_DISP,play, Trigger_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X, 20 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // Z Button Draw (Off)
+		if (g_ControllerInput.cur.button & BTN_Z)
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Trigger_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X, 20 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // Z Button Press (Off)
+		}
 	}
 	}
-	else 
+
+	// GCN Layout ------------------------------------------------------------------------
+
+	if (OVERLAY_PLACEMENT == GCN)
 	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Trigger_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
+		float Cright_x, Cright_y;
+		recomp_get_camera_inputs(&Cright_x, &Cright_y);
 
-	Matrix_Push();
-	Matrix_Translate(Button_X, 20 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.30f, 0.20f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gTriggerVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
+		if (Cright_x != -100 || Cright_y != -100)
+		{
+		float StickC_X = (top_left_x - 292.90f) + (Cright_x * (scale * 2.2f));
+		float StickC_Y = (top_left_y - 57.20f) + (Cright_y * (scale * 2.2f));
+		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 0, 255);
+		DrawInputFunction(&OVERLAY_DISP,play, Notches_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X -3 + 25,BButton_Y + 13.3f, 0.27f, 0.27f, gNotchesVtx);	
+		DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_Ia8, BUTTONS_IMG_W -1, BUTTONS_IMG_H - 1, StickC_X + 22.6f ,-StickC_Y, 0.25f, 0.25f, gStickVtx);
+		}
 
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
+				// Notches 
+		if (DEADZONE_SHOW == ON)
+		{
+			float Radius = sqrt(g_ControllerInput.cur.stick_x*g_ControllerInput.cur.stick_x + g_ControllerInput.cur.stick_y* g_ControllerInput.cur.stick_y);
+			if (Radius <= 15)
+			{
+			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 0, 0, 255);
+			}
+			else if (Radius <= 28)
+			{
+			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 255, 0, 255);
+			}
+			else
+			{
+			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 0, 255);	
+			}
+		}
+		else if (CUSTOM_COLOR_BUTTON == Custom)
+		{
+			char *color = recomp_get_config_string("stick_color");
+			if (color)
+				{
+				if (isValidHexString(color))
+				{
+				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
+				}
+			}
+			recomp_free_config_string(color);
+		}
+		else
+		{
+		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, 255);
+		}
+		DrawInputFunction(&OVERLAY_DISP,play, Notches_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X, 8 - Button_Y, 0.29f, 0.29f, gNotchesVtx);
 
-	gDPLoadTextureTile(OVERLAY_DISP++, Trigger_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
+		// Analog
 
-	Matrix_Push();
-	Matrix_Translate(Button_X + 40, 20 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.30f, 0.20f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gTriggerVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
+		if (g_ControllerInput.cur.stick_x != -100 || g_ControllerInput.cur.stick_y != -100)
+		{
 
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);
-	if (g_ControllerInput.cur.button & BTN_Z)
-	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Trigger_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
+			if (DEADZONE_SHOW == ON)
+			{
+				float Radius = sqrt(g_ControllerInput.cur.stick_x*g_ControllerInput.cur.stick_x + g_ControllerInput.cur.stick_y* g_ControllerInput.cur.stick_y);
+				if (Radius <= 15)
+				{
+				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 0, 0, 255);
+				}
+				else if (Radius <= 28)
+				{
+				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 255, 0, 255);
+				}
+				else
+				{
+				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 0, 255);	
+				}
+			}
+			else if (CUSTOM_COLOR_BUTTON == Custom)
+			{
+				char *color = recomp_get_config_string("stick_color");
+				if (color)
+				{
+					if (isValidHexString(color))
+					{
+					gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
+					}
+				}
+				recomp_free_config_string(color);
+			}
+			else
+			{
+			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, 255);
+			}
+		DrawInputFunction(&OVERLAY_DISP,play, Stick_Ia8, BUTTONS_IMG_W, BUTTONS_IMG_H, Stick_X, 8- Stick_Y, 0.29f, 0.29f, gStickVtx);
+		}
 
-	Matrix_Push();
-	Matrix_Translate(Button_X, 20 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.30f, 0.20f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gTriggerPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
+		// D-PAD
 
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
+		if (CUSTOM_COLOR_BUTTON == Custom)
+		{
+			char *color = recomp_get_config_string("dpad_color");
+			if (color)
+				{
+				if (isValidHexString(color))
+				{
+				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
+				}
+			}
+			recomp_free_config_string(color);
+		}
+		else
+		{
+		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 128, 128, 128, 255); 
+		}
+		DrawInputFunction(&OVERLAY_DISP,play, Dpad_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
+		if (g_ControllerInput.cur.button & BTN_DUP) // D-PAD Up PRESSED
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Dpad_up_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
+		}
+		if (g_ControllerInput.cur.button & BTN_DDOWN) // D-PAD Down PRESSED
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Dpad_down_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
+		}
+		if (g_ControllerInput.cur.button & BTN_DLEFT) // D-PAD Left PRESSED
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Dpad_left_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
+		}
+		if (g_ControllerInput.cur.button & BTN_DRIGHT) // D-PAD Right PRESSED
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Dpad_right_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
+		}
+		if (g_ControllerInput.cur.button & BTN_L) // A Button PRESSED
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Dpad_up_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
+		DrawInputFunction(&OVERLAY_DISP,play, Dpad_down_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
+		DrawInputFunction(&OVERLAY_DISP,play, Dpad_left_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
+		DrawInputFunction(&OVERLAY_DISP,play, Dpad_right_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
+		}
+
+		// Triggers
+
+		if (CUSTOM_COLOR_BUTTON == Custom)
+		{
+			char *color = recomp_get_config_string("trigger_color");
+			if (color)
+				{
+				if (isValidHexString(color))
+				{
+				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
+				}
+			}
+			recomp_free_config_string(color);
+		}
+		else
+		{
+		gDPSetPrimColor(OVERLAY_DISP++, 0, 0,255, 255, 255, 255);
+		}
+		DrawInputFunction(&OVERLAY_DISP,play, Trigger_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X + 20, 17 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // R Button Draw (On & off)
+		if (g_ControllerInput.cur.button & BTN_R)
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Trigger_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X + 20, 17 - Button_Y, 0.30f, 0.20f, gTriggerVtx); // R Button Press (On & off)
+		}
+		DrawInputFunction(&OVERLAY_DISP,play, Trigger_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X, 17 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // Z Button Draw (Off)
+		if (g_ControllerInput.cur.button & BTN_Z)
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Trigger_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X, 17 - Button_Y, 0.30f, 0.20f, gTriggerVtx); // Z Button Press (Off)
+		}
+
+		// A Button
+
+		if (CUSTOM_COLOR_BUTTON == Custom)
+		{
+			char *color = recomp_get_config_string("a_button_color");
+			if (color)
+				{
+				if (isValidHexString(color))
+				{
+				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
+				}
+			}
+			recomp_free_config_string(color);
+		}
+		else
+		{
+		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 255, 0, 255); 
+		}
+		DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, Button_Y + 19, 0.40f, 0.40f, gButtonVtx);
+		if (g_ControllerInput.cur.button & BTN_A)
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, Button_Y + 19, 0.40f, 0.40f, gButtonVtx);
+		}
+
+
+		// B Button
+		if (CUSTOM_COLOR_BUTTON == Custom)
+		{
+			char *color = recomp_get_config_string("b_button_color");
+			if (color)
+				{
+				if (isValidHexString(color))
+				{
+				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
+				}
+			}
+			recomp_free_config_string(color);
+		}
+		else
+		{
+		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 0, 255); 
+		}
+		DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 38, 0.5f - BButton_Y, 0.20f, 0.20f, gButtonVtx);
+		if (g_ControllerInput.cur.button & BTN_B)
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 38, 0.5f - BButton_Y, 0.20f, 0.20f, gButtonVtx);
+		}
+
+		// Start Button
+
+		if (CUSTOM_COLOR_BUTTON == Custom)
+		{
+			char *color = recomp_get_config_string("start_button_color");
+			if (color)
+				{
+				if (isValidHexString(color))
+				{
+				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
+				}
+			}
+			recomp_free_config_string(color);
+		}
+		else
+		{
+		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, 255); 
+		}
+		DrawInputFunction(&OVERLAY_DISP,play, Start_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X+ 40, 8 -  Button_Y, 0.13f, 0.13f, gButtonVtx);
+		if (g_ControllerInput.cur.button & BTN_START)
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Start_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 40, 8 -Button_Y, 0.13f, 0.13f, gButtonVtx);
+		}
+
+		// C Button Left + Right
+
+		DrawInputFunction(&OVERLAY_DISP,play, Ybutton_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 47, 14 - Button_Y, 0.21f, 0.21f, gButtonVtx); // C Left (Y)
+		if (g_ControllerInput.cur.button & BTN_CLEFT)
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Ybutton_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 47, 14 - Button_Y, 0.21f, 0.21f, gButtonVtx); 
+		}
+		DrawInputFunction(&OVERLAY_DISP,play, Xbutton_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 58, 8 - Button_Y, 0.21f, 0.21f, gButtonVtx); // C Right (X)
+		if (g_ControllerInput.cur.button & BTN_CRIGHT)
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Xbutton_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 58, 8 - Button_Y, 0.21f, 0.21f, gButtonVtx); 
+		}
+		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 160, 32, 240, 255); 
+		DrawInputFunction(&OVERLAY_DISP,play, Zbutton_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 61, 18 - Button_Y, 0.17f, 0.17f, gButtonVtx); // C UP (Z)
+		if (g_ControllerInput.cur.button & BTN_CDOWN)
+		{
+		DrawInputFunction(&OVERLAY_DISP,play, Zbutton_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 61, 18 - Button_Y, 0.17f, 0.17f, gButtonVtx);
+		}
 	}
-	if (g_ControllerInput.cur.button & BTN_R)
-	{
-	gDPLoadTextureTile(OVERLAY_DISP++, Trigger_pressed_Ia8, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0,  BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, 0,
-					G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
-	gSPTexture(OVERLAY_DISP++, 0xFFFF, 0xFFFF, 0, G_TX_RENDERTILE, G_ON);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_CULL_BACK);
-
-	Matrix_Push();
-	Matrix_Translate(Button_X + 40, 20 -  Button_Y, 0.0f, MTXMODE_NEW);
-	Matrix_Scale(0.30f, 0.20f, 0, MTXMODE_APPLY);
-	MATRIX_FINALIZE_AND_LOAD(OVERLAY_DISP++, play->state.gfxCtx);
-	gSPClearGeometryMode(OVERLAY_DISP++, G_ZBUFFER | G_SHADE | G_CULL_BOTH | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD);
-	gSPSetGeometryMode(OVERLAY_DISP++, G_SHADE | G_SHADING_SMOOTH);
-	gSPVertex(OVERLAY_DISP++, gTriggerPressedVtx, 4, 0);
-	gSP1Quadrangle(OVERLAY_DISP++, 0, 1, 2, 3, 0);
-
-	Matrix_Pop();
-	gDPPipeSync(OVERLAY_DISP++);	
-	}	
-	}
-
 	gEXPopScissor(OVERLAY_DISP++);
 	CLOSE_DISPS(play->state.gfxCtx);
 }

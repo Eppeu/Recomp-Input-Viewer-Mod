@@ -63,6 +63,22 @@ additional_files = ["thumb.png"]
 # Config options.
 
 [[manifest.config_options]]
+id = "controller_layout_option"
+name = "Overlay Layout"
+description = """ Change the overlay of the input viewer.
+N64: Use the N64 controller layout.
+GCN: Use the GCN controller layout
+Note: The L Button is mapped on the DPad Down on the gamecube controller
+so if you press L, it will appear as pressed on Dpad Down.
+"""
+type = "Enum"
+options = [
+    "N64",
+    "GCN",
+]
+default = "N64"
+
+[[manifest.config_options]]
 id = "input_display_deadzone"
 name = "Extended Superslide Viewer"
 description = """Makes the input viewer distinctly show the ESS zone. (Useful for HESS)
@@ -133,6 +149,7 @@ step = 1
 precision = 1
 percent = false
 default = 145
+
 [[manifest.config_options]]
 id = "custom_color_option"
 name = "Custom Button Color"
