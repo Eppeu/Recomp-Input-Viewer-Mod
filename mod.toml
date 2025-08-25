@@ -79,6 +79,20 @@ options = [
 default = "N64"
 
 [[manifest.config_options]]
+id = "button_placement_option"
+name = "Show L Button"
+description = """Add or remove the L Button from the input viewer.
+Note: Setting the option to Off makes the Right trigger to the R Button
+while the left button will be the Z button instead of the L Button
+"""
+type = "Enum"
+options = [
+    "Off",
+    "On",
+]
+default = "On"
+
+[[manifest.config_options]]
 id = "input_display_deadzone"
 name = "Extended Superslide Viewer"
 description = """Makes the input viewer distinctly show the ESS zone. (Useful for HESS)
@@ -94,20 +108,6 @@ options = [
     "On",
 ]
 default = "Off"
-
-[[manifest.config_options]]
-id = "button_placement_option"
-name = "Show L Button"
-description = """Add or remove the L Button from the input viewer.
-Note: Setting the option to Off makes the Right trigger to the R Button
-while the left button will be the Z button instead of the L Button
-"""
-type = "Enum"
-options = [
-    "Off",
-    "On",
-]
-default = "On"
 
 [[manifest.config_options]]
 id = "overlay_placement_option"
@@ -209,6 +209,34 @@ default = "808080"
 [[manifest.config_options]]
 id = "c_button_color"
 name = "C-Buttons Color"
+description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: FFFF00"
+type = "String"
+default = "FFFF00"
+
+[[manifest.config_options]]
+id = "x_button_color_gcn"
+name = "X Button Color (GCN)"
+description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: FFFFFF"
+type = "String"
+default = "FFFFFF"
+
+[[manifest.config_options]]
+id = "y_button_color_gcn"
+name = "Y Button Color (GCN)"
+description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: FFFFFF"
+type = "String"
+default = "FFFFFF"
+
+[[manifest.config_options]]
+id = "z_button_color_gcn"
+name = "Z Button Color (GCN)"
+description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: A020F0"
+type = "String"
+default = "A020F0"
+
+[[manifest.config_options]]
+id = "c_stick_color_gcn"
+name = "C-Stick Color (GCN)"
 description = "Hex color value of the analog.\nPlease select 'Custom' in 'Custom Button Color' if you want to change the color of each button.\n\nDefault: FFFF00"
 type = "String"
 default = "FFFF00"
