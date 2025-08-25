@@ -85,11 +85,11 @@ typedef enum
 	Custom,
 } CustomColorButton;
 
-#define DEADZONE_SHOW ((DeadzoneViewer)recomp_get_config_u32("input_display_deadzone"))
+#define CONTROLLER_OVERLAY ((ControllerLayout)recomp_get_config_u32("controller_layout_option"))
 #define L_BUTTON_PLACEMENT ((LBUTTON_N64)recomp_get_config_u32("button_placement_option"))
+#define DEADZONE_SHOW ((DeadzoneViewer)recomp_get_config_u32("input_display_deadzone"))
 #define OVERLAY_PLACEMENT ((OverlayPlacement)recomp_get_config_u32("overlay_placement_option"))
 #define CUSTOM_COLOR_BUTTON ((CustomColorButton)recomp_get_config_u32("custom_color_option"))
-#define CONTROLLER_OVERLAY ((ControllerLayout)recomp_get_config_u32("controller_layout_option"))
 RECOMP_IMPORT("*", void recomp_get_window_resolution(u32* width, u32* height));
 RECOMP_IMPORT("*", void recomp_get_camera_inputs(float* x, float* y));
 
@@ -130,12 +130,6 @@ Vtx gDpadVtx[] = {
     VTX( 0, -64, 0,  0 << 5, 64 << 5, 0, 0, 0, 0xFF), 
 };
 
-Vtx gDpadPressedVtx[] = {
-    VTX( 0,   0, 0,  0 << 5,  0 << 5, 0, 0, 0, 0xFF), 
-    VTX(64,   0, 0, 64 << 5,  0 << 5, 0, 0, 0, 0xFF), 
-    VTX(64, -64, 0, 64 << 5, 64 << 5, 0, 0, 0, 0xFF), 
-    VTX( 0, -64, 0,  0 << 5, 64 << 5, 0, 0, 0, 0xFF), 
-};
 
 Vtx gButtonVtx[] = {
     VTX( 0,   0, 0,  0 << 5,  0 << 5, 0, 0, 0, 0xFF), 
@@ -144,12 +138,6 @@ Vtx gButtonVtx[] = {
     VTX( 0, -64, 0,  0 << 5, 64 << 5, 0, 0, 0, 0xFF), 
 };
 
-Vtx gButtonPressedVtx[] = {
-    VTX( 0,   0, 0,  0 << 5,  0 << 5, 0, 0, 0, 0xFF), 
-    VTX(64,   0, 0, 64 << 5,  0 << 5, 0, 0, 0, 0xFF), 
-    VTX(64, -64, 0, 64 << 5, 64 << 5, 0, 0, 0, 0xFF), 
-    VTX( 0, -64, 0,  0 << 5, 64 << 5, 0, 0, 0, 0xFF), 
-};
 
 Vtx gTriggerVtx[] = {
     VTX( 0,   0, 0,  0 << 5,  0 << 5, 0, 0, 0, 0xFF), 
@@ -158,12 +146,6 @@ Vtx gTriggerVtx[] = {
     VTX( 0, -32, 0,  0 << 5, 32 << 5, 0, 0, 0, 0xFF), 
 };
 
-Vtx gTriggerPressedVtx[] = {
-    VTX( 0,   0, 0,  0 << 5,  0 << 5, 0, 0, 0, 0xFF), 
-    VTX(64,   0, 0, 64 << 5,  0 << 5, 0, 0, 0, 0xFF), 
-    VTX(64, -32, 0, 64 << 5, 32 << 5, 0, 0, 0, 0xFF), 
-    VTX( 0, -32, 0,  0 << 5, 32 << 5, 0, 0, 0, 0xFF), 
-};
 
 #define BUTTONS_IMG_W 64
 #define BUTTONS_IMG_H 64
@@ -226,6 +208,8 @@ void KeepInputs(PlayState* play)
 
 }
 
+// Initialization of the repeat function to not repeat the same lines over and over
+
 void DrawInputFunction(Gfx** pkt, PlayState* play, void* timg, int img_w, int img_h, float input_x, float input_y, float scale_x, float scale_y, Vtx* n)
 {
 	gDPLoadTextureTile((*pkt)++, timg, G_IM_FMT_IA, G_IM_SIZ_8b,BUTTONS_IMG_W, BUTTONS_IMG_H,0, 0, img_w, img_h, 0,
@@ -243,6 +227,26 @@ void DrawInputFunction(Gfx** pkt, PlayState* play, void* timg, int img_w, int im
 	gDPPipeSync((*pkt)++);
 }
 
+// r,g,b are the values of the color if the option is disabled
+void CustomColorSet(Gfx** pkt, char* OptionID, int r,int g,int b)
+{
+	if (CUSTOM_COLOR_BUTTON == Custom)
+	{
+	char *color = recomp_get_config_string(OptionID);
+	if (color)
+	{
+    	if (isValidHexString(color))
+		{
+		gDPSetPrimColor((*pkt)++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
+    	}
+	}
+    recomp_free_config_string(color);
+	}
+	else
+	{
+		gDPSetPrimColor((*pkt)++, 0, 0, r, g, b, 255);
+	}
+}
 // Majora's mask runs at 320x240
 // Note: The center of the screen is at 160, 120
 
@@ -258,6 +262,12 @@ void DrawInput(PlayState* play)
 	float DPAD_Y = top_left_y - 45.55f;
 	float BButton_Y = top_left_y - 49.55f;
 
+	// C-Stick
+	float Cright_x, Cright_y;
+	recomp_get_camera_inputs(&Cright_x, &Cright_y);
+	float StickC_X = (top_left_x - 292.90f) + (Cright_x * (scale * 2.2f));
+	float StickC_Y = (top_left_y - 57.20f) + (Cright_y * (scale * 2.2f));
+
 	OPEN_DISPS(play->state.gfxCtx);
 
     gDPSetCycleType(OVERLAY_DISP++, G_CYC_1CYCLE);
@@ -269,19 +279,20 @@ void DrawInput(PlayState* play)
 	if (OVERLAY_PLACEMENT == Left)
 	{
 		gEXSetViewportAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, -margin_reduction * 4, margin_reduction * 4);
+   		gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 	}
-	else 
+	else if (OVERLAY_PLACEMENT == Right)
 	{
 		gEXSetViewportAlign(OVERLAY_DISP++, G_EX_ORIGIN_RIGHT, -margin_reduction * 4, margin_reduction * 4);
-	}
-    gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+   	    gEXSetScissorAlign(OVERLAY_DISP++, G_EX_ORIGIN_LEFT, G_EX_ORIGIN_RIGHT, 0, -margin_reduction, -SCREEN_WIDTH, margin_reduction, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+	}	
 
 	InterfaceContext* interfaceCtx = &play->interfaceCtx;
 
 	gDPSetTexturePersp(OVERLAY_DISP++, G_TP_PERSP);
 	Interface_SetOrthoView(interfaceCtx);
 	Gfx_SetupDL39_Opa(play->state.gfxCtx);
-	
+
 	//Start of the drawing of the inputs
 
 			// Notches 
@@ -303,21 +314,9 @@ void DrawInput(PlayState* play)
 		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 0, 255);	
 		}
 	}
-	else if (CUSTOM_COLOR_BUTTON == Custom)
-	{
-		char *color = recomp_get_config_string("stick_color");
-    	if (color)
-			{
-        	if (isValidHexString(color))
-			{
-			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-        	}
-		}
-        recomp_free_config_string(color);
-	}
 	else
 	{
-	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, 255);
+	CustomColorSet(&OVERLAY_DISP, "stick_color",255,255,255);
 	}
 	DrawInputFunction(&OVERLAY_DISP,play, Notches_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X, 8 - Button_Y, 0.30f, 0.30f, gNotchesVtx);
 
@@ -342,43 +341,16 @@ void DrawInput(PlayState* play)
 			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 0, 255);	
 			}
 		}
-		else if (CUSTOM_COLOR_BUTTON == Custom)
-		{
-			char *color = recomp_get_config_string("stick_color");
-        	if (color)
-			{
-            	if (isValidHexString(color))
-				{
-				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-            	}
-			}
-            recomp_free_config_string(color);
-		}
 		else
 		{
-		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, 255);
+		CustomColorSet(&OVERLAY_DISP, "stick_color",255,255,255);
 		}
 	DrawInputFunction(&OVERLAY_DISP,play, Stick_Ia8, BUTTONS_IMG_W, BUTTONS_IMG_H, Stick_X, 8- Stick_Y, 0.30f, 0.30f, gStickVtx);
 	}
 
 	// D-PAD
 
-	if (CUSTOM_COLOR_BUTTON == Custom)
-	{
-		char *color = recomp_get_config_string("dpad_color");
-    	if (color)
-			{
-        	if (isValidHexString(color))
-			{
-			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-        	}
-		}
-        recomp_free_config_string(color);
-	}
-	else
-	{
-	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 128, 128, 128, 255); 
-	}
+	CustomColorSet(&OVERLAY_DISP, "dpad_color",128,128,128);
 	DrawInputFunction(&OVERLAY_DISP,play, Dpad_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 16, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
 	if (g_ControllerInput.cur.button & BTN_DUP) // D-PAD Up PRESSED
 	{
@@ -399,22 +371,7 @@ void DrawInput(PlayState* play)
 
 	// C Button (Not Pressed)
 
-	if (CUSTOM_COLOR_BUTTON == Custom)
-	{
-		char *color = recomp_get_config_string("c_button_color");
-    	if (color)
-			{
-        	if (isValidHexString(color))
-			{
-			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-        	}
-		}
-        recomp_free_config_string(color);
-	}
-	else
-	{
-	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 0, 255); 
-	}
+	CustomColorSet(&OVERLAY_DISP, "c_button_color",255,255,0);
 	DrawInputFunction(&OVERLAY_DISP,play, Cbuttons_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, 12 - Button_Y, 0.21f, 0.21f, gButtonVtx); //C-UP
 	DrawInputFunction(&OVERLAY_DISP,play, Cbuttons_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, - Button_Y, 0.21f, 0.21f, gButtonVtx); //C-DOWN
 	DrawInputFunction(&OVERLAY_DISP,play, Cbuttons_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 37, 6 - Button_Y, 0.21f, 0.21f, gButtonVtx); //C-LEFT
@@ -438,46 +395,16 @@ void DrawInput(PlayState* play)
 
 	// A Button
 
-	if (CUSTOM_COLOR_BUTTON == Custom)
-	{
-		char *color = recomp_get_config_string("a_button_color");
-    	if (color)
-			{
-        	if (isValidHexString(color))
-			{
-			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-        	}
-		}
-        recomp_free_config_string(color);
-	}
-	else
-	{
-	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 0, 255, 255); 
-	}
+	CustomColorSet(&OVERLAY_DISP, "a_button_color",0,0,255);
 	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 27, -BButton_Y, 0.27f, 0.27f, gButtonVtx);
 	if (g_ControllerInput.cur.button & BTN_A)
 	{
 	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 27, -BButton_Y, 0.27f, 0.27f, gButtonVtx);
 	}
 
-
 	// B Button
-	if (CUSTOM_COLOR_BUTTON == Custom)
-	{
-		char *color = recomp_get_config_string("b_button_color");
-    	if (color)
-			{
-        	if (isValidHexString(color))
-			{
-			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-        	}
-		}
-        recomp_free_config_string(color);
-	}
-	else
-	{
-	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 255, 0, 255); 
-	}
+
+	CustomColorSet(&OVERLAY_DISP, "b_button_color",0,255,0);
 	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 18, 8 - Button_Y, 0.27f, 0.27f, gButtonVtx);
 	if (g_ControllerInput.cur.button & BTN_B)
 	{
@@ -486,22 +413,7 @@ void DrawInput(PlayState* play)
 
 	// Start Button
 
-	if (CUSTOM_COLOR_BUTTON == Custom)
-	{
-		char *color = recomp_get_config_string("start_button_color");
-    	if (color)
-			{
-        	if (isValidHexString(color))
-			{
-			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-        	}
-		}
-        recomp_free_config_string(color);
-	}
-	else
-	{
-	gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 0, 255); 
-	}
+	CustomColorSet(&OVERLAY_DISP, "start_button_color",255,0,0);
 	DrawInputFunction(&OVERLAY_DISP,play, Start_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X+ 26, 20 -  Button_Y, 0.11f, 0.11f, gButtonVtx);
 	if (g_ControllerInput.cur.button & BTN_START)
 	{
@@ -510,22 +422,7 @@ void DrawInput(PlayState* play)
 
 	// Triggers 
 
-	if (CUSTOM_COLOR_BUTTON == Custom)
-	{
-		char *color = recomp_get_config_string("trigger_color");
-    	if (color)
-			{
-        	if (isValidHexString(color))
-			{
-			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-        	}
-		}
-        recomp_free_config_string(color);
-	}
-	else
-	{
-	gDPSetPrimColor(OVERLAY_DISP++, 0, 0,255, 255, 255, 255);
-	}
+	CustomColorSet(&OVERLAY_DISP, "trigger_color",255,255,255);
 	DrawInputFunction(&OVERLAY_DISP,play, Trigger_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X + 40, 20 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // R Button Draw (On & off)
 	if (g_ControllerInput.cur.button & BTN_R)
 	{
@@ -556,21 +453,18 @@ void DrawInput(PlayState* play)
 
 	// GCN Layout ------------------------------------------------------------------------
 
-	if (OVERLAY_PLACEMENT == GCN)
+	else if (CONTROLLER_OVERLAY == GCN)
 	{
-		float Cright_x, Cright_y;
-		recomp_get_camera_inputs(&Cright_x, &Cright_y);
+	if (Cright_x != -100 || Cright_y != -100)
+	{
+	CustomColorSet(&OVERLAY_DISP, "c_stick_color_gcn",255,255,0);
+	DrawInputFunction(&OVERLAY_DISP,play, Notches_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X -3 + 25, -Button_Y + 7, 0.27f, 0.27f, gNotchesVtx);	
+	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_Ia8, BUTTONS_IMG_W -1, BUTTONS_IMG_H - 1, StickC_X + 22.6f ,-StickC_Y, 0.25f, 0.25f, gStickVtx);
+	}
 
-		if (Cright_x != -100 || Cright_y != -100)
-		{
-		float StickC_X = (top_left_x - 292.90f) + (Cright_x * (scale * 2.2f));
-		float StickC_Y = (top_left_y - 57.20f) + (Cright_y * (scale * 2.2f));
-		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 0, 255);
-		DrawInputFunction(&OVERLAY_DISP,play, Notches_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X -3 + 25,BButton_Y + 13.3f, 0.27f, 0.27f, gNotchesVtx);	
-		DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_Ia8, BUTTONS_IMG_W -1, BUTTONS_IMG_H - 1, StickC_X + 22.6f ,-StickC_Y, 0.25f, 0.25f, gStickVtx);
-		}
-
-				// Notches 
+	// Notches 
+	if (g_ControllerInput.cur.stick_x != -100 || g_ControllerInput.cur.stick_y != -100)
+	{
 		if (DEADZONE_SHOW == ON)
 		{
 			float Radius = sqrt(g_ControllerInput.cur.stick_x*g_ControllerInput.cur.stick_x + g_ControllerInput.cur.stick_y* g_ControllerInput.cur.stick_y);
@@ -587,226 +481,136 @@ void DrawInput(PlayState* play)
 			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 0, 255);	
 			}
 		}
-		else if (CUSTOM_COLOR_BUTTON == Custom)
-		{
-			char *color = recomp_get_config_string("stick_color");
-			if (color)
-				{
-				if (isValidHexString(color))
-				{
-				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-				}
-			}
-			recomp_free_config_string(color);
-		}
 		else
 		{
-		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, 255);
+		CustomColorSet(&OVERLAY_DISP, "stick_color",255,255,255);
 		}
-		DrawInputFunction(&OVERLAY_DISP,play, Notches_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X, 8 - Button_Y, 0.29f, 0.29f, gNotchesVtx);
+	}
 
-		// Analog
+	DrawInputFunction(&OVERLAY_DISP,play, Notches_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X, 8 - Button_Y, 0.29f, 0.29f, gNotchesVtx);
 
-		if (g_ControllerInput.cur.stick_x != -100 || g_ControllerInput.cur.stick_y != -100)
+	// Analog
+
+	if (g_ControllerInput.cur.stick_x != -100 || g_ControllerInput.cur.stick_y != -100)
+	{
+		if (DEADZONE_SHOW == ON)
 		{
-
-			if (DEADZONE_SHOW == ON)
+		float Radius = sqrt(g_ControllerInput.cur.stick_x*g_ControllerInput.cur.stick_x + g_ControllerInput.cur.stick_y* g_ControllerInput.cur.stick_y);
+			if (Radius <= 15)
 			{
-				float Radius = sqrt(g_ControllerInput.cur.stick_x*g_ControllerInput.cur.stick_x + g_ControllerInput.cur.stick_y* g_ControllerInput.cur.stick_y);
-				if (Radius <= 15)
-				{
-				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 0, 0, 255);
-				}
-				else if (Radius <= 28)
-				{
-				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 255, 0, 255);
-				}
-				else
-				{
-				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 0, 255);	
-				}
+			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 0, 0, 255);
 			}
-			else if (CUSTOM_COLOR_BUTTON == Custom)
+			else if (Radius <= 28)
 			{
-				char *color = recomp_get_config_string("stick_color");
-				if (color)
-				{
-					if (isValidHexString(color))
-					{
-					gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-					}
-				}
-				recomp_free_config_string(color);
+			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 255, 0, 255);
 			}
 			else
 			{
-			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, 255);
+			gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 0, 255);	
 			}
-		DrawInputFunction(&OVERLAY_DISP,play, Stick_Ia8, BUTTONS_IMG_W, BUTTONS_IMG_H, Stick_X, 8- Stick_Y, 0.29f, 0.29f, gStickVtx);
 		}
+		else
+		{
+		CustomColorSet(&OVERLAY_DISP, "stick_color",255,255,255);
+		}
+	DrawInputFunction(&OVERLAY_DISP,play, Stick_Ia8, BUTTONS_IMG_W, BUTTONS_IMG_H, Stick_X, 8- Stick_Y, 0.29f, 0.29f, gStickVtx);
+	}
+		
 
 		// D-PAD
 
-		if (CUSTOM_COLOR_BUTTON == Custom)
-		{
-			char *color = recomp_get_config_string("dpad_color");
-			if (color)
-				{
-				if (isValidHexString(color))
-				{
-				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-				}
-			}
-			recomp_free_config_string(color);
-		}
-		else
-		{
-		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 128, 128, 128, 255); 
-		}
-		DrawInputFunction(&OVERLAY_DISP,play, Dpad_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
-		if (g_ControllerInput.cur.button & BTN_DUP) // D-PAD Up PRESSED
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, Dpad_up_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
-		}
-		if (g_ControllerInput.cur.button & BTN_DDOWN) // D-PAD Down PRESSED
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, Dpad_down_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
-		}
-		if (g_ControllerInput.cur.button & BTN_DLEFT) // D-PAD Left PRESSED
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, Dpad_left_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
-		}
-		if (g_ControllerInput.cur.button & BTN_DRIGHT) // D-PAD Right PRESSED
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, Dpad_right_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
-		}
-		if (g_ControllerInput.cur.button & BTN_L) // A Button PRESSED
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, Dpad_up_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
-		DrawInputFunction(&OVERLAY_DISP,play, Dpad_down_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
-		DrawInputFunction(&OVERLAY_DISP,play, Dpad_left_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
-		DrawInputFunction(&OVERLAY_DISP,play, Dpad_right_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
-		}
+	CustomColorSet(&OVERLAY_DISP, "dpad_color",128,128,128);
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
+	if (g_ControllerInput.cur.button & BTN_DUP) // D-PAD Up PRESSED
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_up_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
+	}
+	if (g_ControllerInput.cur.button & BTN_DDOWN) // D-PAD Down PRESSED
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_down_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
+	}
+	if (g_ControllerInput.cur.button & BTN_DLEFT) // D-PAD Left PRESSED
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_left_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
+	}
+	if (g_ControllerInput.cur.button & BTN_DRIGHT) // D-PAD Right PRESSED
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_right_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
+	}
+	if (g_ControllerInput.cur.button & BTN_L) // L Button PRESSED
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_up_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_down_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_left_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);		
+	DrawInputFunction(&OVERLAY_DISP,play, Dpad_right_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 14, -DPAD_Y, 0.19f, 0.19f, gDpadVtx);
+	}
 
-		// Triggers
+	// Triggers
 
-		if (CUSTOM_COLOR_BUTTON == Custom)
-		{
-			char *color = recomp_get_config_string("trigger_color");
-			if (color)
-				{
-				if (isValidHexString(color))
-				{
-				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-				}
-			}
-			recomp_free_config_string(color);
-		}
-		else
-		{
-		gDPSetPrimColor(OVERLAY_DISP++, 0, 0,255, 255, 255, 255);
-		}
-		DrawInputFunction(&OVERLAY_DISP,play, Trigger_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X + 20, 17 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // R Button Draw (On & off)
-		if (g_ControllerInput.cur.button & BTN_R)
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, Trigger_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X + 20, 17 - Button_Y, 0.30f, 0.20f, gTriggerVtx); // R Button Press (On & off)
-		}
-		DrawInputFunction(&OVERLAY_DISP,play, Trigger_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X, 17 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // Z Button Draw (Off)
-		if (g_ControllerInput.cur.button & BTN_Z)
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, Trigger_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X, 17 - Button_Y, 0.30f, 0.20f, gTriggerVtx); // Z Button Press (Off)
-		}
+	CustomColorSet(&OVERLAY_DISP, "trigger_color",255,255,255);
+	DrawInputFunction(&OVERLAY_DISP,play, Trigger_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X + 20, 17 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // R Button Draw (On & off)
+	if (g_ControllerInput.cur.button & BTN_R)
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Trigger_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X + 20, 17 - Button_Y, 0.30f, 0.20f, gTriggerVtx); // R Button Press (On & off)
+	}
+	DrawInputFunction(&OVERLAY_DISP,play, Trigger_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X, 17 -  Button_Y, 0.30f, 0.20f, gTriggerVtx); // Z Button Draw (Off)
+	if (g_ControllerInput.cur.button & BTN_Z)
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Trigger_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 33, Button_X, 17 - Button_Y, 0.30f, 0.20f, gTriggerVtx); // Z Button Press (Off)
+	}
 
-		// A Button
-
-		if (CUSTOM_COLOR_BUTTON == Custom)
-		{
-			char *color = recomp_get_config_string("a_button_color");
-			if (color)
-				{
-				if (isValidHexString(color))
-				{
-				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-				}
-			}
-			recomp_free_config_string(color);
-		}
-		else
-		{
-		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 0, 255, 0, 255); 
-		}
-		DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, Button_Y + 19, 0.40f, 0.40f, gButtonVtx);
-		if (g_ControllerInput.cur.button & BTN_A)
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, Button_Y + 19, 0.40f, 0.40f, gButtonVtx);
-		}
+	// A Button
+	CustomColorSet(&OVERLAY_DISP, "a_button_color",0,255,0); 
+	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, -Button_Y + 12, 0.40f, 0.40f, gButtonVtx);
+	if (g_ControllerInput.cur.button & BTN_A)
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 43, -Button_Y + 12, 0.40f, 0.40f, gButtonVtx);
+	}
 
 
-		// B Button
-		if (CUSTOM_COLOR_BUTTON == Custom)
-		{
-			char *color = recomp_get_config_string("b_button_color");
-			if (color)
-				{
-				if (isValidHexString(color))
-				{
-				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-				}
-			}
-			recomp_free_config_string(color);
-		}
-		else
-		{
-		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 0, 0, 255); 
-		}
-		DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 38, 0.5f - BButton_Y, 0.20f, 0.20f, gButtonVtx);
-		if (g_ControllerInput.cur.button & BTN_B)
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 38, 0.5f - BButton_Y, 0.20f, 0.20f, gButtonVtx);
-		}
+	// B Button
 
-		// Start Button
+	CustomColorSet(&OVERLAY_DISP, "b_button_color",255,0,0); 
+	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 38, 0.5f - BButton_Y, 0.20f, 0.20f, gButtonVtx);
+	if (g_ControllerInput.cur.button & BTN_B)
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, ABbuttons_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 38, 0.5f - BButton_Y, 0.20f, 0.20f, gButtonVtx);
+	}
 
-		if (CUSTOM_COLOR_BUTTON == Custom)
-		{
-			char *color = recomp_get_config_string("start_button_color");
-			if (color)
-				{
-				if (isValidHexString(color))
-				{
-				gDPSetPrimColor(OVERLAY_DISP++, 0, 0, sToU8(color), sToU8(color + 2), sToU8(color + 4), 255);
-				}
-			}
-			recomp_free_config_string(color);
-		}
-		else
-		{
-		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 255, 255, 255, 255); 
-		}
-		DrawInputFunction(&OVERLAY_DISP,play, Start_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X+ 40, 8 -  Button_Y, 0.13f, 0.13f, gButtonVtx);
-		if (g_ControllerInput.cur.button & BTN_START)
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, Start_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 40, 8 -Button_Y, 0.13f, 0.13f, gButtonVtx);
-		}
+	// Start Button
 
-		// C Button Left + Right
+	CustomColorSet(&OVERLAY_DISP, "start_button_color",255,255,255); 
+	DrawInputFunction(&OVERLAY_DISP,play, Start_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X+ 40, 8 -  Button_Y, 0.13f, 0.13f, gButtonVtx);
+	if (g_ControllerInput.cur.button & BTN_START)
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Start_pressed_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 40, 8 -Button_Y, 0.13f, 0.13f, gButtonVtx);
+	}
 
-		DrawInputFunction(&OVERLAY_DISP,play, Ybutton_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 47, 14 - Button_Y, 0.21f, 0.21f, gButtonVtx); // C Left (Y)
-		if (g_ControllerInput.cur.button & BTN_CLEFT)
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, Ybutton_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 47, 14 - Button_Y, 0.21f, 0.21f, gButtonVtx); 
-		}
-		DrawInputFunction(&OVERLAY_DISP,play, Xbutton_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 58, 8 - Button_Y, 0.21f, 0.21f, gButtonVtx); // C Right (X)
-		if (g_ControllerInput.cur.button & BTN_CRIGHT)
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, Xbutton_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 58, 8 - Button_Y, 0.21f, 0.21f, gButtonVtx); 
-		}
-		gDPSetPrimColor(OVERLAY_DISP++, 0, 0, 160, 32, 240, 255); 
-		DrawInputFunction(&OVERLAY_DISP,play, Zbutton_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 61, 18 - Button_Y, 0.17f, 0.17f, gButtonVtx); // C UP (Z)
-		if (g_ControllerInput.cur.button & BTN_CDOWN)
-		{
-		DrawInputFunction(&OVERLAY_DISP,play, Zbutton_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 61, 18 - Button_Y, 0.17f, 0.17f, gButtonVtx);
-		}
+	// C Button Left 
+
+	CustomColorSet(&OVERLAY_DISP, "x_button_color_gcn",255,255,255); 
+	DrawInputFunction(&OVERLAY_DISP,play, Ybutton_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 47, 14 - Button_Y, 0.21f, 0.21f, gButtonVtx); // C Left (Y)
+	if (g_ControllerInput.cur.button & BTN_CLEFT)
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Ybutton_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 47, 14 - Button_Y, 0.21f, 0.21f, gButtonVtx); 
+	}
+
+	// C Button Right
+
+	CustomColorSet(&OVERLAY_DISP, "x_button_color_gcn",255,255,255); 
+	DrawInputFunction(&OVERLAY_DISP,play, Xbutton_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 58, 8 - Button_Y, 0.21f, 0.21f, gButtonVtx); // C Right (X)
+	if (g_ControllerInput.cur.button & BTN_CRIGHT)
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Xbutton_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 58, 8 - Button_Y, 0.21f, 0.21f, gButtonVtx); 
+	}
+
+	// C-DOWN
+	CustomColorSet(&OVERLAY_DISP, "z_button_color_gcn",160,32,240); 
+	DrawInputFunction(&OVERLAY_DISP,play, Zbutton_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 61, 18 - Button_Y, 0.17f, 0.17f, gButtonVtx); // C UP (Z)
+	if (g_ControllerInput.cur.button & BTN_CDOWN)
+	{
+	DrawInputFunction(&OVERLAY_DISP,play, Zbutton_pressed_GCN_Ia8, BUTTONS_IMG_W - 1, BUTTONS_IMG_H - 1, Button_X + 61, 18 - Button_Y, 0.17f, 0.17f, gButtonVtx);
+	}
 	}
 	gEXPopScissor(OVERLAY_DISP++);
 	CLOSE_DISPS(play->state.gfxCtx);
